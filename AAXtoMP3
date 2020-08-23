@@ -353,9 +353,9 @@ do
   title=$(get_metadata_value title | $SED 's/'\:'/'-'/g' | $SED 's/- /-/g' | xargs -0)
   title=${title:0:100}
   if [ "x${targetdir}" != "x" ] ; then
-    output_directory="${targetdir}/${genre}/${artist}/${title}"
+    output_directory=$(echo "${targetdir}/${genre}/${artist}/${title}" | $SED 's/\.//g')
   else
-    output_directory="$(dirname "${aax_file}")/${genre}/${artist}/${title}"
+    output_directory=$(echo "$(dirname "${aax_file}")/${genre}/${artist}/${title}" | $SED 's/\.//g')
   fi
   output_file="${output_directory}/${title}.${extension}"
   bitrate="$(get_bitrate)k"
@@ -417,7 +417,7 @@ do
         read -r -u9 _ _ chapter
 
         # The formatting of the chapters names and the file names.
-        # Chapter names are used in a few place.
+        # Chapter names are used in a few places.
         chapter_title="${title}-$(printf %0${#chaptercount}d $chapternum) ${chapter}"
         chapter_file="${output_directory}/${chapter_title}.${extension}"
 
