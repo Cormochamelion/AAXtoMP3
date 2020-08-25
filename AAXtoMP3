@@ -252,8 +252,7 @@ trap 'rm -r -f "${working_directory}"' EXIT
 
 # -----
 # Set up some basic working files ASAP.  Note the trap will clean this up no matter what.
-mkdir $(pwd)/temp
-working_directory="$(pwd)/temp"
+working_directory=`mktemp -d 2>/dev/null || mktemp -d -t 'mytmpdir'`
 metadata_file="${working_directory}/metadata.txt"
 
 # -----
@@ -353,11 +352,13 @@ do
   artist=$(get_metadata_value artist)
   title=$(get_metadata_value title | $SED 's/'\:'/'-'/g' | $SED 's/- /-/g' | xargs -0)
   title=${title:0:100}
+
   if [ "x${targetdir}" != "x" ] ; then
     output_directory=$(echo "${targetdir}/${genre}/${artist}/${title}" | $SED 's/\.//g')
   else
     output_directory=$(echo "$(dirname "${aax_file}")/${genre}/${artist}/${title}" | $SED 's/\.//g')
   fi
+
   output_file="${output_directory}/${title}.${extension}"
   bitrate="$(get_bitrate)k"
   album_artist="$(get_metadata_value album_artist)"
@@ -381,14 +382,19 @@ do
   # and coders wanting to extend the script.
   debug_vars "Book and Variable values" title auth_code mode aax_file container codec bitrate artist album_artist album album_date genre copyright output_file metadata_file working_directory
 
-  # -----
-  # This is the main work horse command.  This is the primary transcoder.
-  # This is the primary transcode. All the heavy lifting is here.
-  debug 'ffmpeg -loglevel error -y -stats -activation_bytes "${auth_code}" -i "${aax_file}" -vn -codec:a "${codec}" -ab ${bitrate} -map_metadata -1 -metadata title="${title}" -metadata artist="${artist}" -metadata album_artist="${album_artist}" -metadata album="${album}" -metadata date="${album_date}" -metadata track="1/1" -metadata genre="${genre}" -metadata copyright="${copyright}" "${output_file}"'
-  </dev/null ffmpeg -loglevel error -y -stats -activation_bytes "${auth_code}" -i "${aax_file}" -vn -codec:a "${codec}" -ab ${bitrate} -map_metadata -1 -metadata title="${title}" -metadata artist="${artist}" -metadata album_artist="${album_artist}" -metadata album="${album}" -metadata date="${album_date}" -metadata track="1/1" -metadata genre="${genre}" -metadata copyright="${copyright}" -f ${container} "${output_file}"
+# skip conversion if the output file already exists
+if [ ! -e "${output_file}" ]
+then
+    # -----
+    # This is the main work horse command.  This is the primary transcoder.
+    # This is the primary transcode. All the heavy lifting is here.
+    debug 'ffmpeg -loglevel error -y -stats -activation_bytes "${auth_code}" -i "${aax_file}" -vn -codec:a "${codec}" -ab ${bitrate} -map_metadata -1 -metadata title="${title}" -metadata artist="${artist}" -metadata album_artist="${album_artist}" -metadata album="${album}" -metadata date="${album_date}" -metadata track="1/1" -metadata genre="${genre}" -metadata copyright="${copyright}" "${output_file}"'
+    </dev/null ffmpeg -loglevel error -y -stats -activation_bytes "${auth_code}" -i "${aax_file}" -vn -codec:a "${codec}" -ab ${bitrate} -map_metadata -1 -metadata title="${title}" -metadata artist="${artist}" -metadata album_artist="${album_artist}" -metadata album="${album}" -metadata date="${album_date}" -metadata track="1/1" -metadata genre="${genre}" -metadata copyright="${copyright}" -f ${container} "${output_file}"
 
-  log "Created ${output_file}."
-  # -----
+    log "Created ${output_file}."
+    # -----
+    
+  fi
 
   # Grab the cover art if available.
   cover_file="${output_directory}/cover.jpg"
@@ -421,7 +427,7 @@ do
         # Chapter names are used in a few places.
         chapter_title="${title}-$(printf %0${#chaptercount}d $chapternum) ${chapter}"
         chapter_file="${output_directory}/${chapter_title}.${extension}"
-
+        
         # the ID3 tags must only be specified for *.mp3 files,
         # the other container formats come with their own
         # tagging mechanisms.
@@ -435,16 +441,16 @@ do
 
         # Extract chapter by time stamps start and finish of chapter.
         # This extracts based on time stamps start and end.
-        log "Splitting chapter ${chapternum} start:${chapter_start%?}(s) end:${chapter_end}(s)"
-        </dev/null ffmpeg -y -nostats -i "${output_file}" -i "${cover_file}" -ss "${chapter_start%?}" -to "${chapter_end}" -map 0:0 -map 1:0 -acodec "${codec}" ${id3_version_param} \
-        -metadata:s:v title="Album cover" -metadata:s:v comment="Cover (Front)" -metadata track="${chapternum}" -metadata title="${chapter_title}" \
-        -metadata:s:a title="${chapter_title}" -metadata:s:a track="${chapternum}" -map_chapters -1 \
-        -f ${container} "${chapter_file}"
+        log "Splitting chapter ${chapternum} start:${chapter_start%?}(s) end:${chapter_end%?}(s)"
+        log "${chapter_file}"
+        </dev/null ffmpeg -y -nostats -loglevel quiet -ss "${chapter_start%?}" -to "${chapter_end%?}" -i "${output_file}" -acodec "${codec}" ${id3_version_param} -metadata track="${chapternum}" -metadata title="${chapter_title}" -metadata:s:a title="${chapter_title}" -metadata:s:a track="${chapternum}" -f ${container} "${chapter_file}"
+
+        log "Splitting chapters finished."
 
         # -----
         # OK lets get what need for the next chapter in the Playlist m3u file.
         # Playlist creation.
-        duration=$(echo "${chapter_end} - ${chapter_start%?}" | bc)
+        duration=$(("${chapter_end%.*} - ${chapter_start%.*}"))
         echo "#EXTINF:${duration%.*},${title} - ${chapter}" >>  "${playlist_file}"
         echo "${chapter_title}.${extension}" >> "${playlist_file}"
         chapternum=$((chapternum + 1 ))
